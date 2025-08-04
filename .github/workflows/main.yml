@@ -37,11 +37,16 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
 
-    - name: Build SampleApplication
-      run: ./gradlew --no-daemon build
+
       
     - name: Clean project
       run: ./gradlew clean
+
+    - name: Download Dependencies
+      run: ./gradlew dependencies
+
+    - name: Build SampleApplication
+      run: ./gradlew --no-daemon build
       
     - name: Build debug APK
       run: ./gradlew assembleDebug
