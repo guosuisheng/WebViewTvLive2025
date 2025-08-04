@@ -33,7 +33,20 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
       
+    - name: Check if secrets are available
+      id: check_secrets
+      run: |
+        if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "❌ KEYSTORE_BASE64 secret is not set"
+          echo "Will build debug APK instead"
+          echo "has_secrets=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Required secrets are available"
+          echo "has_secrets=true" >> $GITHUB_OUTPUT
+        fi
+        
     - name: Decode Keystore
+      if: steps.check_secrets.outputs.has_secrets == 'true'
       id: decode_keystore
       uses: timheuer/base64-to-file@v1.2
       with:
@@ -42,21 +55,28 @@ jobs:
         encodedString: ${{ secrets.KEYSTORE_BASE64 }}
         
     - name: Build signed APK
+      if: steps.check_secrets.outputs.has_secrets == 'true'
       run: ./gradlew assembleRelease
       env:
         SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         
+    - name: Build debug APK (fallback)
+      if: steps.check_secrets.outputs.has_secrets == 'false'
+      run: ./gradlew assembleDebug
+        
     - name: Verify APK signature
       run: |
         $ANDROID_HOME/build-tools/34.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
         
-    - name: Upload signed APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: signed-apk
-        path: app/build/outputs/apk/release/app-release.apk
+        name: ${{ steps.check_secrets.outputs.has_secrets == 'true' && 'signed-apk' || 'debug-apk' }}
+        path: |
+          app/build/outputs/apk/release/app-release.apk
+          app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
         
     - name: Create Release for Tags
