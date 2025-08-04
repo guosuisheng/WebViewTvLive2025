@@ -15,17 +15,22 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      # Set up JDK
+    - name: Set up JDK 1.8
+      uses: actions/setup-java@v3
       with:
-        java-version: '17'
-        distribution: 'temurin'
+        java-version: '1.8'
+        distribution: 'temurin' # AdoptOpenJDK is no longer maintained
+        cache: gradle
 
-    - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
+    # Setup Android SDK
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3 # Use most recent version
       with:
-        api-level: 34
-        build-tools: 34.0.0
+        compileSdkVersion: 34
+        ndkVersion: '21.4.7075529'  #Recommended stable NDK version
+        # OR if you want the latest (generally not recommended for stability)
+        # ndkVersion: 'latest'
         
     - name: Cache Gradle packages
       uses: actions/cache@v4
