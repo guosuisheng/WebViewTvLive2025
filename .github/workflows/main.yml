@@ -1,13 +1,14 @@
-name: Build and Sign WebViewTvLive
+name: Simple Build WebViewTvLive
 
 on:
   push:
+    branches: [ main, develop ]
+  pull_request:
     branches: [ main ]
-    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
-  build-and-sign:
+  build:
     runs-on: ubuntu-latest
     
     steps:
@@ -39,102 +40,93 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
       
+    - name: Check project structure
+      run: |
+        echo "📁 Project structure:"
+        ls -la
+        echo ""
+        echo "📁 App directory:"
+        ls -la app/ 2>/dev/null || echo "No app directory found"
+        echo ""
+        echo "📄 Gradle files:"
+        find . -name "*.gradle*" -type f | head -10
+        
     - name: Fix build configuration
       run: |
-        echo "🔧 Fixing Android build configuration..."
+        echo "🔧 Applying build fixes..."
         
-        # Find build file
-        if [ -f "app/build.gradle" ]; then
-            BUILD_FILE="app/build.gradle"
-        elif [ -f "app/build.gradle.kts" ]; then
-            BUILD_FILE="app/build.gradle.kts"
-        else
-            echo "❌ Could not find build.gradle file"
-            exit 1
-        fi
+        # Update gradle.properties
+        cat >> gradle.properties << 'EOF'
         
-        echo "📝 Found build file: $BUILD_FILE"
-        cp "$BUILD_FILE" "$BUILD_FILE.backup"
-        
-        # Fix compileSdk version
-        if grep -q "compileSdk" "$BUILD_FILE"; then
-            echo "🔄 Updating compileSdk to 35..."
-            sed -i 's/compileSdk [0-9]\+/compileSdk 35/g' "$BUILD_FILE"
-            sed -i 's/compileSdk = [0-9]\+/compileSdk = 35/g' "$BUILD_FILE"
-        else
-            echo "➕ Adding compileSdk 35..."
-            sed -i '/android {/a\    compileSdk 35' "$BUILD_FILE"
-        fi
-        
-        # Add gradle.properties overrides
-        echo "📝 Adding gradle.properties overrides..."
-        cat >> gradle.properties << EOF
-        
-        # Build fixes for GitHub Actions
+        # Build configuration fixes
         android.compileSdk=35
+        android.targetSdk=34
         android.buildToolsVersion=35.0.0
         android.useAndroidX=true
         android.enableJetifier=true
-        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        
+        # Performance settings
+        org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
         org.gradle.parallel=true
         org.gradle.caching=true
+        org.gradle.daemon=true
+        
+        # Suppress warnings
+        android.suppressUnsupportedCompileSdk=35
         EOF
         
-        echo "✅ Build configuration fixes applied!"
-      
-    - name: Check if secrets are available
-      id: check_secrets
+        echo "📝 Updated gradle.properties:"
+        cat gradle.properties
+        
+    - name: Clean project
       run: |
-        if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-          echo "❌ KEYSTORE_BASE64 secret is not set"
-          echo "Will build debug APK instead"
-          echo "has_secrets=false" >> $GITHUB_OUTPUT
+        echo "🧹 Cleaning project..."
+        ./gradlew clean --stacktrace
+      
+    - name: Build debug APK
+      run: |
+        echo "🔨 Building debug APK..."
+        ./gradlew assembleDebug --stacktrace --info --no-daemon
+        
+    - name: Check build outputs
+      run: |
+        echo "📦 Checking build outputs..."
+        find . -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+        
+        if [ -d "app/build/outputs" ]; then
+          echo "📁 Contents of app/build/outputs:"
+          find app/build/outputs -type f | head -20
         else
-          echo "✅ Required secrets are available"
-          echo "has_secrets=true" >> $GITHUB_OUTPUT
+          echo "❌ No outputs directory found"
         fi
         
-    - name: Decode Keystore
-      if: steps.check_secrets.outputs.has_secrets == 'true'
-      id: decode_keystore
-      uses: timheuer/base64-to-file@v1.2
-      with:
-        fileName: 'keystore.jks'
-        fileDir: './app/'
-        encodedString: ${{ secrets.KEYSTORE_BASE64 }}
+        # Check for common build directories
+        for dir in build app/build; do
+          if [ -d "$dir" ]; then
+            echo "📁 Contents of $dir:"
+            ls -la "$dir" | head -10
+          fi
+        done
         
-    - name: Build signed APK
-      if: steps.check_secrets.outputs.has_secrets == 'true'
-      run: ./gradlew assembleRelease
-      env:
-        SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-        
-    - name: Build debug APK (fallback)
-      if: steps.check_secrets.outputs.has_secrets == 'false'
-      run: ./gradlew assembleDebug
-        
-    - name: Verify APK signature
-      run: |
-        $ANDROID_HOME/build-tools/34.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
-        
-    - name: Upload APK
+    - name: Upload APK artifacts
       uses: actions/upload-artifact@v4
+      if: always()
       with:
-        name: ${{ steps.check_secrets.outputs.has_secrets == 'true' && 'signed-apk' || 'debug-apk' }}
+        name: apk-files
         path: |
-          app/build/outputs/apk/release/app-release.apk
-          app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 30
+          **/build/outputs/apk/**/*.apk
+          **/*.apk
+        retention-days: 7
+        if-no-files-found: warn
         
-    - name: Create Release for Tags
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: failure()
       with:
-        files: app/build/outputs/apk/release/app-release.apk
-        name: WebViewTvLive ${{ github.ref_name }}
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: build-logs
+        path: |
+          **/build/reports/
+          **/build/tmp/
+          gradle.properties
+        retention-days: 3
+        if-no-files-found: ignore
