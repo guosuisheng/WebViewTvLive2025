@@ -20,6 +20,12 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        api-level: 35
+        build-tools: 35.0.0
+        
     - name: Cache Gradle packages
       uses: actions/cache@v4
       with:
@@ -32,6 +38,49 @@ jobs:
           
     - name: Make gradlew executable
       run: chmod +x gradlew
+      
+    - name: Fix build configuration
+      run: |
+        echo "🔧 Fixing Android build configuration..."
+        
+        # Find build file
+        if [ -f "app/build.gradle" ]; then
+            BUILD_FILE="app/build.gradle"
+        elif [ -f "app/build.gradle.kts" ]; then
+            BUILD_FILE="app/build.gradle.kts"
+        else
+            echo "❌ Could not find build.gradle file"
+            exit 1
+        fi
+        
+        echo "📝 Found build file: $BUILD_FILE"
+        cp "$BUILD_FILE" "$BUILD_FILE.backup"
+        
+        # Fix compileSdk version
+        if grep -q "compileSdk" "$BUILD_FILE"; then
+            echo "🔄 Updating compileSdk to 35..."
+            sed -i 's/compileSdk [0-9]\+/compileSdk 35/g' "$BUILD_FILE"
+            sed -i 's/compileSdk = [0-9]\+/compileSdk = 35/g' "$BUILD_FILE"
+        else
+            echo "➕ Adding compileSdk 35..."
+            sed -i '/android {/a\    compileSdk 35' "$BUILD_FILE"
+        fi
+        
+        # Add gradle.properties overrides
+        echo "📝 Adding gradle.properties overrides..."
+        cat >> gradle.properties << EOF
+        
+        # Build fixes for GitHub Actions
+        android.compileSdk=35
+        android.buildToolsVersion=35.0.0
+        android.useAndroidX=true
+        android.enableJetifier=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        org.gradle.parallel=true
+        org.gradle.caching=true
+        EOF
+        
+        echo "✅ Build configuration fixes applied!"
       
     - name: Check if secrets are available
       id: check_secrets
