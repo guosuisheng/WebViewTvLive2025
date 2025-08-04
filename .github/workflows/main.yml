@@ -21,14 +21,8 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Setup Android SDK
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v3 # Use most recent version
-      with:
-        compileSdkVersion: 34
-        ndkVersion: '21.4.7075529'  #Recommended stable NDK version
-        # OR if you want the latest (generally not recommended for stability)
-        # ndkVersion: 'latest'
+      uses: android-actions/setup-android@v3
         
     - name: Cache Gradle packages
       uses: actions/cache@v4
@@ -42,6 +36,9 @@ jobs:
           
     - name: Make gradlew executable
       run: chmod +x gradlew
+
+    - name: Build SampleApplication
+      run: ./gradlew --no-daemon build
       
     - name: Clean project
       run: ./gradlew clean
